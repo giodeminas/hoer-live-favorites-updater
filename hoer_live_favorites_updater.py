@@ -464,15 +464,26 @@ class App:
 
     def run_task_with_result(self):
         # Run the task and store the result in `self.result`
-        self.video_titles = get_available_video_titles(self.params["youtube_playlist_url"], self.stop_flag)
+        try:
+            self.video_titles = get_available_video_titles(self.params["youtube_playlist_url"], self.stop_flag)
+        except Exception as e:
+            print_and_log(f"Failed to load YouTube playlist. Error: {e}")
+            return None
 
     def run_task_without_result(self):
-        automate_website_interaction(self.params["chrome_path"], 
-                                    self.video_titles, 
-                                    self.params["hoer_live_url"], 
-                                    self.params["hoer_live_username"], 
-                                    self.params["hoer_live_password"], 
-                                    self.stop_flag)
+        try:
+            automate_website_interaction(self.params["chrome_path"], 
+                                        self.video_titles, 
+                                        self.params["hoer_live_url"], 
+                                        self.params["hoer_live_username"], 
+                                        self.params["hoer_live_password"], 
+                                        self.stop_flag)
+        except Exception as e:
+            print_and_log(f"Automation failed. Error: {e}")
+            print_and_error("Automation failed!\n\nCheck input parameters!")
+            self.automation_stop_button.config(state=tk.DISABLED)
+            self.automation_start_button.config(state=tk.NORMAL)
+            self.stop_flag.set()
 
         if self.stop_flag.is_set():
             return
@@ -506,6 +517,8 @@ class App:
                 self.automation_thread.start()
             else:
                 print_and_error("Failed to load the YouTube playlist!\n\nCheck playlist permissions or URL!")
+                self.automation_stop_button.config(state=tk.DISABLED)
+                self.automation_start_button.config(state=tk.NORMAL)
 
     def stop_automation(self):
         print_and_log("Stopping automation...")
