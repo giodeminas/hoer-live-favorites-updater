@@ -107,10 +107,9 @@ def load_website(driver, website_url):
     # Wait for the page to load
     time.sleep(1)
 
-# Step 1: Get video titles from YouTube playlist (assuming the get_video_titles function works correctly)
+# Step 1: Get video titles from YouTube playlist
 def get_available_video_titles(playlist_url, stop_flag):
-
-    # Sets the default client type for pytube
+    # Sets the default client type for pytube (fixes errors when reading some video titles)
     _default_clients["ANDROID_MOBILE"] = _default_clients["WEB"]
     
     # Initialize the playlist
@@ -124,6 +123,7 @@ def get_available_video_titles(playlist_url, stop_flag):
     available_videos = []
     
     for video in playlist.videos:
+
         if stop_flag.is_set():
             return available_videos
 
@@ -182,8 +182,11 @@ def check_if_logged_in(driver, target_website_url):
         except Exception as e:
             return False
 
-def login(username, password, driver, target_website_url):
+def login(username, password, driver, target_website_url, stop_flag):
     try:
+        if stop_flag.is_set():
+            return
+
         try:
             # Navigate to the website
             print_and_log(f"Navigating to {target_website_url}...")
@@ -192,8 +195,14 @@ def login(username, password, driver, target_website_url):
             print_and_error("Failed to load website " + target_website_url + "\n\nCheck URL!")
             return False
 
+        if stop_flag.is_set():
+            return
+
         click_close_popup(driver)
         click_consent(driver)
+
+        if stop_flag.is_set():
+            return
 
         print_and_log("Attempting to log in.")
 
@@ -221,6 +230,10 @@ def login(username, password, driver, target_website_url):
                 login_object = driver.find_element(By.XPATH, '//span[@class="user-letter__text"]')
                 login_object.click()
                 time.sleep(1)
+
+        if stop_flag.is_set():
+            return
+
         login_object = driver.find_element(By.XPATH, '//button[@class="magic-form__next button button_green"]')
         login_object.click()
         login_object = driver.find_element(By.ID, "username")
@@ -292,6 +305,8 @@ def click_artist_favorite_icon(driver, title):
 
 # Step 2: Automate browser interaction with Selenium
 def automate_website_interaction(chrome_path, available_videos, website_url, username, password, stop_flag):
+    if stop_flag.is_set():
+        return
 
     run_chrome_if_not_running(chrome_path)
 
@@ -305,14 +320,13 @@ def automate_website_interaction(chrome_path, available_videos, website_url, use
         driver = webdriver.Chrome(options=chrome_options)
         print_and_log("Successfully connected to the browser.")
 
-        if stop_flag.is_set():
-            return
-
-        if login(username, password, driver, website_url):
+        if login(username, password, driver, website_url, stop_flag):
             for title in available_videos:
+
                  # Check for the stop flag regularly
                 if stop_flag.is_set():
                     return
+
                 try:
                     # Step 2.1: Search with full video title
                     try:
@@ -325,6 +339,7 @@ def automate_website_interaction(chrome_path, available_videos, website_url, use
 
                         if stop_flag.is_set():
                             return
+
                         # Step 2.2: Search with partial video title
                         try:
                             count_1 = title.count("|")
@@ -333,14 +348,14 @@ def automate_website_interaction(chrome_path, available_videos, website_url, use
                             if count_1 > 0 and count_2 > 0:
                                 print_and_log(f"Retrying attempt 1: using first and last parts of the title...")
                                 split_title_part_1 = title.split("|")[0]
-                                split_title_part_2 = title.split("-")[-1] # gets tge last part of the string
+                                split_title_part_2 = title.split("-")[-1] # gets the last part of the string
                                 toggle_search(driver, split_title_part_1 + split_title_part_2)
                                 click_result_item(driver)
                                 click_favorite_icon(driver, title)
                                 continue
                             else:
                                 print_and_log(f"Retrying attempt 1: using the second half of the title...")
-                                split_title_part_2 = title.split("- ")[1] # gets tge last part of the string
+                                split_title_part_2 = title.split("- ")[1] # gets the last part of the string
                                 toggle_search(driver, split_title_part_2)
                                 click_result_item(driver)
                                 click_favorite_icon(driver, title)
@@ -389,7 +404,7 @@ class App:
         self.root = root
         self.root.title("hoer.live Favorites Updater")
 
-        # Automation control flags
+        # Automation control flag
         self.stop_flag = Event()
         self.automation_thread = None
         self.video_titles = None  # Store the automation result here
@@ -463,7 +478,7 @@ class App:
             self.params["chrome_path"] = file_path
 
     def run_task_with_result(self):
-        # Run the task and store the result in `self.result`
+        # Run the task and store the result in `self.video_titles`
         try:
             self.video_titles = get_available_video_titles(self.params["youtube_playlist_url"], self.stop_flag)
         except Exception as e:
@@ -497,7 +512,6 @@ class App:
         self.automation_stop_button.config(state=tk.NORMAL)
         self.automation_start_button.config(state=tk.DISABLED)
 
-        # Example of a long-running task
         print("Automation started...")
 
         # Clear the stop flag and start a new automation thread
@@ -510,8 +524,12 @@ class App:
             print(f"Failed to load YouTube playlist. Error: {e}")
             self.video_titles = None  
 
-        if self.automation_thread is not None:
-            self.automation_thread.join()
+        # Check thread status periodically
+        self.root.after(100, self.check_thread_status)
+
+    def check_thread_status(self):
+        # Check if the first thread processing is finished to continue the automation
+        if self.automation_thread and not self.automation_thread.is_alive():
             if self.video_titles != None:
                 self.automation_thread = Thread(target=self.run_task_without_result)
                 self.automation_thread.start()
@@ -519,6 +537,9 @@ class App:
                 print_and_error("Failed to load the YouTube playlist!\n\nCheck playlist permissions or URL!")
                 self.automation_stop_button.config(state=tk.DISABLED)
                 self.automation_start_button.config(state=tk.NORMAL)
+        else:
+            # Check again after 100ms
+            self.root.after(100, self.check_thread_status)
 
     def stop_automation(self):
         print_and_log("Stopping automation...")
@@ -535,6 +556,7 @@ class App:
 
         # Re-enable start button after stopping
         self.automation_start_button.config(state=tk.NORMAL)
+
         print_and_log("Automation stopped.")
 
     def bind_events(self, entry):
