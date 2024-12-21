@@ -244,6 +244,7 @@ def login(username, password, driver, target_website_url, stop_flag):
         login_object.send_keys(password)
         login_object = driver.find_element(By.XPATH, '//button[@class="woocommerce-button button woocommerce-form-login__submit"]')
         login_object.click()
+        time.sleep(1)
         if not check_if_logged_in(driver, target_website_url):
             print_and_error("Failed to togin to " + target_website_url + "\n\nCheck credentials!")
             return False
@@ -330,6 +331,7 @@ def automate_website_interaction(chrome_path, available_videos, website_url, use
                 try:
                     # Step 2.1: Search with full video title
                     try:
+                        load_website(driver, website_url)
                         toggle_search(driver, title)
                         click_result_item(driver)
                         click_favorite_icon(driver, title)
