@@ -26,7 +26,9 @@ def load_configuration():
         "youtube_playlist_url": "",
         "hoer_live_url": "https://hoer.live/",
         "hoer_live_username": "",
-        "hoer_live_password": ""
+        "hoer_live_password": "",
+        "process_full_playlist": bool(1),
+        "playlist_record_limit": 1
     }
 
     try:
@@ -108,7 +110,7 @@ def load_website(driver, website_url):
     time.sleep(1)
 
 # Step 1: Get video titles from YouTube playlist
-def get_available_video_titles(playlist_url, stop_flag):
+def get_available_video_titles(playlist_url, playlist_record_limit, stop_flag):
     # Sets the default client type for pytube (fixes errors when reading some video titles)
     _default_clients["ANDROID_MOBILE"] = _default_clients["WEB"]
     
@@ -121,16 +123,24 @@ def get_available_video_titles(playlist_url, stop_flag):
     
     # List to store available video titles
     available_videos = []
+
+    video_count = 0
     
     for video in playlist.videos:
 
         if stop_flag.is_set():
             return available_videos
+        
+        if playlist_record_limit > 0:
+            if video_count == playlist_record_limit:
+                print_and_log(f"Fetched {len(available_videos)} available video titles.")
+                return available_videos
 
         try:
             # Try to access the video's title (this will fail if the video is unavailable)
             title = video.title
             available_videos.append(title)
+            video_count = video_count + 1
         except Exception as e:
             # If a video is unavailable, it will throw a KeyError
             print_and_log("A video is unavailable and will be skipped: " + video.title)
@@ -411,8 +421,8 @@ class App:
         self.automation_thread = None
         self.video_titles = None  # Store the automation result here
 
-        # Set the window size to 800x350 (width x height)
-        root.geometry("800x350")
+        # Set the window size to 900x400 (width x height)
+        root.geometry("850x420")
         
         # Create labels and entry boxes for the parameters
         self.chrome_path_label = tk.Label(root, text="chrome.exe Path:")
@@ -457,15 +467,33 @@ class App:
         self.hoer_live_password_entry.grid(row=4, column=1, padx=5, pady=10)
         self.bind_events(self.hoer_live_password_entry)
 
+        self.process_full_playlist_checkbox_var = tk.BooleanVar()
+        self.playlist_record_limit_checkbox_entry = tk.Checkbutton(root,
+                                                                   text="Process the full playlist",
+                                                                   variable=self.process_full_playlist_checkbox_var, 
+                                                                   command=self.on_input_change)
+        self.playlist_record_limit_checkbox_entry.grid(row=5, column=0, columnspan=2, padx=5, pady=10, sticky="W")
+        self.bind_events(self.playlist_record_limit_checkbox_entry)
+
+
+        self.playlist_record_limit_label = tk.Label(root, text="Limit processed records to:")
+        self.playlist_record_limit_label.grid(row=6, column=0, padx=5, pady=10, sticky="E")
+        self.playlist_record_limit_var = tk.StringVar()
+        self.playlist_record_limit_var.trace_add("write", self.on_validate_number)
+        self.playlist_record_limit_var.trace_add("write", self.on_input_change)
+        self.playlist_record_limit_entry = tk.Entry(root, width=100, textvariable=self.playlist_record_limit_var, state=tk.DISABLED)
+        self.playlist_record_limit_entry.grid(row=6, column=1, padx=5, pady=10)
+        self.bind_events(self.playlist_record_limit_entry)
+
         # Create buttons
         self.automation_start_button = tk.Button(root, text="Start Automation", command=self.start_automation)
-        self.automation_start_button.grid(row=5, column=0, columnspan=1, pady=20)
+        self.automation_start_button.grid(row=7, column=0, columnspan=1, pady=20)
         self.automation_stop_button = tk.Button(root, text="Stop Automation", command=self.stop_automation, state=tk.DISABLED)
-        self.automation_stop_button.grid(row=6, column=0, columnspan=1, pady=20)
+        self.automation_stop_button.grid(row=8, column=0, columnspan=1, pady=20)
         self.configuration_save_button = tk.Button(root, text="Save Configuration", command=self.save)
-        self.configuration_save_button.grid(row=5, column=1, columnspan=1, pady=20)
+        self.configuration_save_button.grid(row=7, column=1, columnspan=1, pady=20)
         self.configuration_load_button = tk.Button(root, text="Load Configuration", command=self.load, state=tk.DISABLED)
-        self.configuration_load_button.grid(row=6, column=1, columnspan=1, pady=20)
+        self.configuration_load_button.grid(row=8, column=1, columnspan=1, pady=20)
 
         self.load()
 
@@ -482,7 +510,14 @@ class App:
     def run_task_with_result(self):
         # Run the task and store the result in `self.video_titles`
         try:
-            self.video_titles = get_available_video_titles(self.params["youtube_playlist_url"], self.stop_flag)
+            if self.params["process_full_playlist"]:
+                self.video_titles = get_available_video_titles(self.params["youtube_playlist_url"], 
+                                                               0, 
+                                                               self.stop_flag)
+            else:
+                self.video_titles = get_available_video_titles(self.params["youtube_playlist_url"], 
+                                                               self.params["playlist_record_limit"], 
+                                                               self.stop_flag)
         except Exception as e:
             print_and_log(f"Failed to load YouTube playlist. Error: {e}")
             return None
@@ -568,12 +603,19 @@ class App:
         entry.bind("<FocusOut>", self.on_input_change)
 
     def on_input_change(self, *args):
-        # Disable buttons if any field is empty or if values differ from saved values
+        if (self.process_full_playlist_checkbox_var.get()):
+            self.playlist_record_limit_entry.config(state=tk.DISABLED)
+        else:
+            self.playlist_record_limit_entry.config(state=tk.NORMAL)
+        
+		# Disable buttons if any field is empty or if values differ from saved values
         if (self.chrome_path_var.get().strip() == "" or
             self.youtube_playlist_url_var.get().strip() == "" or
             self.hoer_live_url_var.get().strip() == "" or
             self.hoer_live_username_var.get().strip() == "" or
-            self.hoer_live_password_var.get().strip() == ""):
+            self.hoer_live_password_var.get().strip() == "" or 
+            (self.process_full_playlist_checkbox_var.get() == 0 and 
+            int(self.playlist_record_limit_var.get().strip() or 0) == 0)):
             self.automation_start_button.config(state=tk.DISABLED)
             self.configuration_save_button.config(state=tk.DISABLED)
         else:
@@ -581,15 +623,19 @@ class App:
                 self.params["youtube_playlist_url"] == "" or
                 self.params["hoer_live_url"] == "" or
                 self.params["hoer_live_username"] == "" or
-                self.params["hoer_live_password"] == ""):
+                self.params["hoer_live_password"] == "" or 
+                (self.params["process_full_playlist"] and
+                self.params["playlist_record_limit"] == 0)):
                 self.automation_start_button.config(state=tk.DISABLED)
                 self.configuration_save_button.config(state=tk.NORMAL)
             else:
-                if (self.params["chrome_path"] != self.chrome_path_var.get() or
-                    self.params["youtube_playlist_url"] != self.youtube_playlist_url_var.get() or
-                    self.params["hoer_live_url"] != self.hoer_live_url_var.get() or
-                    self.params["hoer_live_username"] != self.hoer_live_username_var.get() or
-                    self.params["hoer_live_password"] != self.hoer_live_password_var.get()):
+                if (self.params["chrome_path"] != self.chrome_path_var.get() or 
+                    self.params["youtube_playlist_url"] != self.youtube_playlist_url_var.get() or 
+                    self.params["hoer_live_url"] != self.hoer_live_url_var.get() or 
+                    self.params["hoer_live_username"] != self.hoer_live_username_var.get() or 
+                    self.params["hoer_live_password"] != self.hoer_live_password_var.get() or
+                    self.params["process_full_playlist"] != self.process_full_playlist_checkbox_var.get() or
+                    self.params["playlist_record_limit"] != int(self.playlist_record_limit_var.get().strip() or 0)):
                     self.automation_start_button.config(state=tk.DISABLED)
                     self.configuration_save_button.config(state=tk.NORMAL)
                     self.configuration_load_button.config(state=tk.NORMAL)
@@ -597,6 +643,10 @@ class App:
                     self.automation_start_button.config(state=tk.NORMAL)
                     self.configuration_save_button.config(state=tk.DISABLED)
                     self.configuration_load_button.config(state=tk.DISABLED)
+
+    def on_validate_number(self, *args):
+        if not self.playlist_record_limit_var.get().isdigit():
+            self.playlist_record_limit_var.set("".join(filter(str.isdigit, self.playlist_record_limit_var.get())))
 
     def load(self):
         # Load saved parameters if they exist
@@ -607,6 +657,8 @@ class App:
         self.hoer_live_url_var.set(self.params.get("hoer_live_url", ""))
         self.hoer_live_username_var.set(self.params.get("hoer_live_username", ""))
         self.hoer_live_password_var.set(self.params.get("hoer_live_password", ""))
+        self.process_full_playlist_checkbox_var.set(self.params.get("process_full_playlist"))
+        self.playlist_record_limit_var.set(self.params.get("playlist_record_limit", ""))
 
     def save(self):
         # Get values from entry field variables
@@ -615,6 +667,8 @@ class App:
         self.params["hoer_live_url"] = self.hoer_live_url_var.get()
         self.params["hoer_live_username"] = self.hoer_live_username_var.get()
         self.params["hoer_live_password"] = self.hoer_live_password_var.get()
+        self.params["process_full_playlist"] = self.process_full_playlist_checkbox_var.get()
+        self.params["playlist_record_limit"] = int(self.playlist_record_limit_var.get().strip() or 0)
 
         # Save to JSON file
         save_configuration(self.params)
